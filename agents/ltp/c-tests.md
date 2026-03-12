@@ -740,3 +740,41 @@ static struct tst_test test = {
     .test_all = run,
 };
 ```
+
+#### Memory re-initialization for iterative testing (-i parameter)
+
+NEVER rely on static initialization for data modified during test logic when
+using `-i` parameter:
+
+```c
+static char str[256];
+static int fd = -1;
+
+static void run(void)
+{
+    ...
+
+    /* WRONG: static str not re-initialized but re-used before each iteration */
+    SAFE_READ(0, fd, str, mylen);
+
+    /* here we might have a string without \0 terminator */
+}
+```
+
+ALWAYS re-initialize static data at the start of `run()` before using it:
+
+```c
+static char str[256];
+static int fd = -1;
+
+static void run(void)
+{
+    ...
+
+    /* CORRECT: str re-initialized before each test iteration */
+    memset(str, 0, sizeof(str));
+    SAFE_READ(0, fd, str, mylen);
+
+    /* here we are sure buffer has a \0 terminator */
+}
+```
