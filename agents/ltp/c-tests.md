@@ -657,3 +657,86 @@ else
 /* CORRECT: use TST_EXP_EXPR */
 TST_EXP_EXPR(uid > 0 && gid > 0, "IDs should be positive");
 ```
+
+### Memory Allocations
+
+#### Release mmap() allocations
+
+NEVER leave `mmap()` allocations without `munmap()` in cleanup:
+
+```c
+/* WRONG: mmap'd memory not released in cleanup */
+static void *addr = NULL;
+
+static void setup(void) {
+    addr = SAFE_MMAP(NULL, size, prot, flags, fd, 0);
+}
+
+static struct tst_test test = {
+    .setup = setup,
+    /* WRONG: missing .cleanup to munmap */
+    .test_all = run,
+};
+```
+
+ALWAYS `munmap()` in cleanup when `mmap()` in `setup()`:
+
+```c
+/* CORRECT: mmap resources released in cleanup */
+static void *addr = NULL;
+
+static void setup(void) {
+    addr = SAFE_MMAP(NULL, size, prot, flags, fd, 0);
+}
+
+static void cleanup(void) {
+    if (addr != NULL)
+        SAFE_MUNMAP(addr, size);
+}
+
+static struct tst_test test = {
+    .setup = setup,
+    .cleanup = cleanup,
+    .test_all = run,
+};
+```
+
+#### Release malloc() allocations
+
+NEVER leave malloc'd memory without `free()` in cleanup:
+
+```c
+/* WRONG: malloc'd memory not released in cleanup */
+static char *buffer = NULL;
+
+static void setup(void) {
+    buffer = SAFE_MALLOC(size);
+}
+
+static struct tst_test test = {
+    .setup = setup,
+    /* WRONG: missing .cleanup to free */
+    .test_all = run,
+};
+```
+
+ALWAYS `free()` in cleanup when `malloc()`:
+
+```c
+/* CORRECT: malloc resources released in cleanup */
+static char *buffer = NULL;
+
+static void setup(void) {
+    buffer = SAFE_MALLOC(size);
+}
+
+static void cleanup(void) {
+    free(buffer);
+}
+
+static struct tst_test test = {
+    .setup = setup,
+    .cleanup = cleanup,
+    .test_all = run,
+};
+```
