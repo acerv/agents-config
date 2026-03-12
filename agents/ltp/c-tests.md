@@ -111,61 +111,227 @@ When reviewing or writing C tests, verify ALL of the following:
 
 ## Code Examples
 
-### CORRECT: New API
+The following sections contain examples which are considered reference when
+rewriting old LTP tests or when writing new LTP tests.
+
+ALWAYS follow these rules.
+
+### New LTP API usage
+
+#### Use the correct import
 
 ```c
-#include <stdlib.h>
+/* WRONG: this is importing legacy API */
+#include "test.h"
+
+/* CORRECT: use new LTP API*/
 #include "tst_test.h"
+```
 
-static int fd;
+#### Use SAFE\_\* macros
 
-static void setup(void)
-{
-    fd = SAFE_OPEN("test_file", O_RDWR | O_CREAT, 0644);
+```c
+/* WRONG: don't use plain syscalls */
+int fd = open("test_file", O_RDWR | O_CREAT, 0644);
+if (fd > 0) {
+    tst_brk(TBROK | TERRNO, "open() error");
 }
 
-static void cleanup(void)
+/* CORRECT: use SAFE_* macros instead */
+int fd = SAFE_OPEN("test_file", O_RDWR | O_CREAT, 0644);
+```
+
+### SAFE\_\* macros definition
+
+#### Don't use `cleanup_fn` in newly added `safe_*` definitions
+
+```c
+/* WRONG: cleanup_fn is used in the legacy LTP API */
+void *safe_mysyscall(const char *file, const int lineno, void (*cleanup_fn) (void),
+        size_t size)
 {
+    void *rval;
+
+    rval = mysyscall(size);
+
+    if (rval == NULL) {
+        /* WRONG: tst_brkm_ is used by the legacy API */
+        tst_brkm_(file, lineno, TBROK | TERRNO, cleanup_fn,
+            "mysyscall(%zu) failed", size);
+    }
+
+    return rval;
+}
+
+/* CORRECT: use the new LTP API format */
+void *safe_mysyscall(const char *file, const int lineno,
+        size_t size)
+{
+    void *rval;
+
+    rval = mysyscall(size);
+
+    if (rval == NULL) {
+        /* CORRECT: tst_brk_ is used by the new API */
+        tst_brk_(file, lineno, TBROK | TERRNO,
+            "mysyscall(%zu) failed", size);
+    }
+
+    return rval;
+}
+```
+
+### Temporary folder
+
+NEVER create files in the currently local folder:
+
+```c
+static int fd = -1;
+
+static void setup(void) {
+    fd = SAFE_OPEN("myfile", O_RDWR | O_CREAT, 0777);
+}
+
+static void cleanup(void) {
     if (fd > 0)
         SAFE_CLOSE(fd);
 }
 
-static void run(void)
-{
-    SAFE_WRITE(SAFE_WRITE_ALL, fd, "a", 1);
-    tst_res(TPASS, "write() succeeded");
+static struct tst_test test = {
+    .setup = setup,
+    .cleanup = cleanup,
+    .test_all = run,
+    /* WRONG: missing `.needs_tmpdir = 1` */
+};
+```
+
+ALWAYS create files in the temporary folder:
+
+```c
+static int fd = -1;
+
+static void setup(void) {
+    fd = SAFE_OPEN("myfile", O_RDWR | O_CREAT, 0777);
+}
+
+static void cleanup(void) {
+    if (fd > 0)
+        SAFE_CLOSE(fd);
 }
 
 static struct tst_test test = {
-    .test_all = run,
     .setup = setup,
     .cleanup = cleanup,
+    .test_all = run,
+    /* CORRECT: create files in the temporary folder */
     .needs_tmpdir = 1,
-    .needs_root = 1,
 };
-
 ```
 
-### INCORRECT: Legacy/Unsafe
+### File descriptors
+
+#### Initialization
+
+NEVER initialize file descriptors to valid values:
 
 ```c
-/* WRONG: old header */
-#include "test.h"
+/* WRONG: zero value file descriptor is a valid value (stdin) */
+static int fd;
 
-/* WRONG: defining main */
-int main(void)
-{
-    /* WRONG: unsafe call, hardcoded path */
-    int fd = open("/tmp/file", O_RDWR);
-
-    if (fd < 0) {
-        /* WRONG: use tst_res or SAFE macro */
-        perror("open");
-        exit(1);
-    }
-
-    /* WRONG: old print function */
-    tst_resm(TPASS, "test passed");
-    tst_exit();
+static void run(void) {
+    /* here we use fd */
 }
+
+static void setup(void) {
+    fd = SAFE_OPEN("myfile", O_RDWR | O_CREAT, 0777);
+}
+
+static void cleanup(void) {
+    if (fd > 0)
+        SAFE_CLOSE(fd);
+}
+
+static struct tst_test test = {
+    .setup = setup,
+    .cleanup = cleanup,
+    .test_all = run,
+    .needs_tmpdir = 1,
+};
+```
+
+ALWAYS set file descriptors to an invalid value:
+
+```c
+/* CORRECT: initialize file descriptor to an invalid value */
+static int fd = -1;
+
+static void run(void) {
+    /* here we use fd */
+}
+
+static void setup(void) {
+    fd = SAFE_OPEN("myfile", O_RDWR | O_CREAT, 0777);
+}
+
+static void cleanup(void) {
+    if (fd > 0)
+        SAFE_CLOSE(fd);
+}
+
+static struct tst_test test = {
+    .setup = setup,
+    .cleanup = cleanup,
+    .test_all = run,
+    .needs_tmpdir = 1,
+};
+```
+
+#### Close open file descriptors
+
+NEVER leave test without closing open file descriptors:
+
+```c
+static int fd = -1;
+
+static void run(void) {
+    /* here we use fd */
+}
+
+static void setup(void) {
+    fd = SAFE_OPEN("myfile", O_RDWR | O_CREAT, 0777);
+}
+
+static struct tst_test test = {
+    .setup = setup,
+    /* WRONG: missing .cleanup */
+    .test_all = run,
+    .needs_tmpdir = 1,
+};
+```
+
+ALWAYS close file descriptors at cleanup:
+
+```c
+static int fd = -1;
+
+static void run(void) {
+    /* here we use fd */
+}
+
+static void setup(void) {
+    fd = SAFE_OPEN("myfile", O_RDWR | O_CREAT, 0777);
+}
+
+/* CORRECT: close file descriptors at cleanup */
+static void cleanup(void) {
+    if (fd > 0)
+        SAFE_CLOSE(fd);
+}
+
+static struct tst_test test = {
+    .setup = setup,
+    .cleanup = cleanup,
+    .test_all = run,
+    .needs_tmpdir = 1,
+};
 ```
