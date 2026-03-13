@@ -142,7 +142,8 @@ ALWAYS follow these rules.
 #### Use SAFE\_\* macros
 
 ALWAYS verify that syscalls we are using have a `SAFE_*` version associated
-with it. If it exists, use it. If it doesn't, verify if you can create it.
+with it inside the `include/tst_*.h` files. If it exists, use it. If it
+doesn't, verify if you can create it.
 
 ```c
 /* WRONG: don't use plain syscalls */
