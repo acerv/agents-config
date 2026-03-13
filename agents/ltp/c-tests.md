@@ -43,7 +43,7 @@ When reviewing or writing C tests, verify ALL of the following:
 
 - Code MUST follow Linux kernel coding style
 - `make check` or `make check-$TCID` MUST pass (uses vendored `checkpatch.pl`)
-- C tests must be written in C99 (or later C standard)
+- MUST use C99 features where appropriate
 
 ### 2. API Usage
 
