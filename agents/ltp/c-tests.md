@@ -790,3 +790,72 @@ static void run(void)
     /* here we are sure buffer has a \0 terminator */
 }
 ```
+
+### Test Case Parametrization
+
+NEVER define separate functions for each test case and call them manually:
+
+```c
+/* WRONG: separate functions called manually from run() */
+static void test_new_file_no_creat(void)
+{
+    TST_EXP_FAIL2(open("nofile", O_RDWR, 0444), ENOENT,
+        "open() new file without O_CREAT");
+}
+
+static void test_noatime_unprivileged(void)
+{
+    TST_EXP_FAIL2(open("test_file2", O_RDONLY | O_NOATIME, 0444), EPERM,
+        "open() unprivileged O_RDONLY | O_NOATIME");
+}
+
+static void run(void)
+{
+    /* WRONG: manual dispatch, no automatic sub-test numbering */
+    test_new_file_no_creat();
+    test_noatime_unprivileged();
+}
+
+static struct tst_test test = {
+    /* WRONG: .test_all used instead of .test + .tcnt */
+    .test_all = run,
+};
+```
+
+ALWAYS define a single `struct tcase` array and use `.test` + `.tcnt` in
+`struct tst_test`. The test function receives the index `n` and dispatches
+through the array:
+
+```c
+/* CORRECT: one struct tcase array, one generic handler, .test + .tcnt */
+static struct tcase {
+    const char *filename;
+    int flag;
+    int exp_errno;
+    const char *desc;
+} tcases[] = {
+    {"nofile",      O_RDWR,               ENOENT, "new file without O_CREAT"},
+    {"test_file2",  O_RDONLY | O_NOATIME, EPERM,  "unprivileged O_RDONLY | O_NOATIME"},
+};
+
+static void verify_open(unsigned int n)
+{
+    struct tcase *tc = &tcases[n];
+
+    TST_EXP_FAIL2(open(tc->filename, tc->flag, 0444),
+        tc->exp_errno, "open() %s", tc->desc);
+}
+
+static struct tst_test test = {
+    /* CORRECT: framework iterates tcases[], prints "1.", "2.", … automatically */
+    .tcnt = ARRAY_SIZE(tcases),
+    .test = verify_open,
+};
+```
+
+Key rules:
+
+- `.test` (takes `unsigned int n`) is used when there are multiple test cases.
+- `.test_all` (takes no arguments) is used only when there is a single test case.
+- NEVER use separate per-case functions called from `run()`.
+- NEVER use `.test_all` when multiple cases exist.
