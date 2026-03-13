@@ -1029,3 +1029,36 @@ if (!child_pid) {
 }
 /* parent code */
 ```
+
+### Child Process Reaping
+
+NEVER reap children before exit the test. LTP framework calls
+`tst_reap_children()` before exiting and handles reaping automatically:
+
+```c
+static void run(void)
+{
+    pid_t child_pid;
+
+    child_pid = SAFE_FORK();
+    if (!child_pid) {
+        exit(0);
+    }
+
+    /* WRONG: explicit waitpid is redundant */
+    SAFE_WAITPID(child_pid, NULL, 0);
+}
+```
+
+ALWAYS rely on the framework to reap children:
+
+```c
+static void run(void)
+{
+    if (!SAFE_FORK()) {
+        exit(0);
+    }
+
+    /* CORRECT: let the framework reaping the child */
+}
+```
