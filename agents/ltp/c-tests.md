@@ -120,6 +120,13 @@ syscalls files at `include/lapi/syscalls/*.in` by running the command:
 
 Where `<linux code>` is the folder with the Linux Kernel source code.
 
+Then ALWAYS regenerate the `lapi/syscalls.h` file to make sure we have all
+syscalls updated:
+
+```sh
+./include/lapi/syscalls/generate_syscalls.sh include/lapi/syscalls.h
+```
+
 ## Code Examples
 
 The following sections contain examples which are considered reference when
@@ -859,3 +866,36 @@ Key rules:
 - `.test_all` (takes no arguments) is used only when there is a single test case.
 - NEVER use separate per-case functions called from `run()`.
 - NEVER use `.test_all` when multiple cases exist.
+
+### Using Syscalls
+
+#### Using tst_syscall
+
+NEVER call plain syscalls:
+
+```c
+/* WRONG: syscall() requires ENOSYS check */
+syscall(__NR_listns, &req, NULL, 0, 0);
+if (errno == ENOSYS)
+        tst_brk(TCONF, "listns() not supported");
+```
+
+ALWAYS use `tst_syscall` instead:
+
+```c
+/* CORRECT: tst_syscall() always verify that errno == ENOSYS */
+tst_syscall(__NR_listns, &req, NULL, 0, 0);
+```
+
+#### Importing Syscalls IDs
+
+Syscalls `__NR_*` identifiers are ALWAYS defined in `lapi/syscalls.h`:
+
+```c
+#include "lapi/syscalls.h"
+
+static void setup(void)
+{
+    tst_syscall(__NR_listns, &req, NULL, 0, 0);
+}
+```
