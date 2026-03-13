@@ -777,32 +777,52 @@ static struct tst_test test = {
 };
 ```
 
-#### Use `.bufs` for framework-managed allocations
+#### Use `.bufs` for tested syscall struct arguments
 
-When a buffer only needs to exist for the duration of the test, use `.bufs` in
-`struct tst_test` instead of `malloc()`/`free()` in setup/cleanup. The
-framework allocates and frees these automatically — no cleanup needed.
+NEVER allocate syscall struct arguments on the stack as local variables, if the
+syscall is the subject of our test:
 
 ```c
-static struct my_struct *buf;
-
-static void run(void)
+/* WRONG: stack-allocated struct passed by address */
+static void verify(unsigned int n)
 {
-    /* buf is already allocated by the framework */
-    buf->field = 42;
-    ...
+    struct listns_req req = {
+        .size = NS_ID_REQ_SIZE_VER0,
+        .ns_type = tc->clone_flag,
+    };
+
+    TEST(listns(&req, buf, size, 0));
 }
 
 static struct tst_test test = {
-    .test_all = run,
+    .test = verify,
+    .tcnt = ARRAY_SIZE(tcases),
+};
+```
+
+ALWAYS declare a static pointer and use `.bufs` to let the framework allocate it:
+
+```c
+/* CORRECT: framework-managed allocation via .bufs */
+static struct listns_req *req;
+
+static void verify(unsigned int n)
+{
+    req->size = NS_ID_REQ_SIZE_VER0;
+    req->ns_type = tc->clone_flag;
+
+    TEST(listns(req, buf, size, 0));
+}
+
+static struct tst_test test = {
+    .test = verify,
+    .tcnt = ARRAY_SIZE(tcases),
     .bufs = (struct tst_buffers []) {
-        {&buf, .size = sizeof(*buf)},
+        {&req, .size = sizeof(*req)},
         {},
     },
 };
 ```
-
-When `.bufs` is used, skip the memory deallocation check for those buffers.
 
 #### Memory re-initialization for iterative testing (-i parameter)
 
