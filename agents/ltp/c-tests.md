@@ -943,3 +943,69 @@ static void setup(void)
     tst_syscall(__NR_listns, &req, NULL, 0, 0);
 }
 ```
+
+### Child Process Handling
+
+#### Parent - Child Synchronization
+
+NEVER signal the parent from the child before setup is complete:
+
+```c
+/* WRONG: child signals before doing setup, parent may proceed too early */
+child_pid = SAFE_FORK();
+if (!child_pid) {
+    TST_CHECKPOINT_WAKE(0);
+    SAFE_UNSHARE(CLONE_NEWNS);
+    TST_CHECKPOINT_WAIT(0);
+    exit(0);
+}
+
+TST_CHECKPOINT_WAIT(0);
+/* ... test work ... */
+TST_CHECKPOINT_WAKE(0);
+SAFE_WAITPID(child_pid, NULL, 0);
+```
+
+ALWAYS let the child wait for the parent's go-ahead, do setup, then signal
+completion:
+
+```c
+/* CORRECT: parent triggers child, waits for setup, tests, then releases */
+child_pid = SAFE_FORK();
+if (!child_pid) {
+    TST_CHECKPOINT_WAIT(0);
+    /* child setup */
+    TST_CHECKPOINT_WAKE_AND_WAIT(0);
+    exit(0);
+}
+
+TST_CHECKPOINT_WAKE_AND_WAIT(0);
+/* ... test work ... */
+TST_CHECKPOINT_WAKE(0);
+SAFE_WAITPID(child_pid, NULL, 0);
+```
+
+### Child Process Exit
+
+NEVER let a child process return or fall through without an explicit exit:
+
+```c
+/* WRONG: missing exit, child may fall through into parent code */
+child_pid = SAFE_FORK();
+if (!child_pid) {
+    /* child work */
+}
+/* parent code */
+```
+
+ALWAYS call `exit(0)` at the end of the child block:
+
+```c
+/* CORRECT: child always exits explicitly */
+child_pid = SAFE_FORK();
+if (!child_pid) {
+    /* child work */
+    exit(0);
+}
+/* parent code */
+```
