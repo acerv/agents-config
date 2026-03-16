@@ -105,6 +105,7 @@ When reviewing or writing C tests, verify ALL of the following:
 ### 12. String Handling
 
 - MUST use `snprintf()` when combining strings
+- MUST use `PATH_MAX` for path buffers, NOT custom size macros
 
 ### 13. Deprecated Features
 
@@ -930,6 +931,45 @@ Key rules:
 - `.test_all` (takes no arguments) is used only when there is a single test case.
 - NEVER use separate per-case functions called from `run()`.
 - NEVER use `.test_all` when multiple cases exist.
+
+### Path Buffers
+
+NEVER define a custom buffer size for path strings:
+
+```c
+/* WRONG: custom size may be too small for real paths */
+#define BUF_SIZE 256
+static char fname[BUF_SIZE];
+static char fname_copy[BUF_SIZE];
+
+static void run(void)
+{
+    SAFE_GETCWD(fname, BUF_SIZE);
+    /* silently truncates if CWD > 255 chars */
+    snprintf(fname_copy, sizeof(fname_copy), "%s.bak", fname);
+}
+```
+
+ALWAYS use `PATH_MAX` for buffers that hold filesystem paths:
+
+```c
+/* CORRECT: PATH_MAX (4096) accommodates any valid path */
+#include <limits.h>
+
+static char fname[PATH_MAX];
+static char fname_copy[PATH_MAX];
+
+static void run(void)
+{
+    SAFE_GETCWD(fname, sizeof(fname));
+    snprintf(fname_copy, sizeof(fname_copy), "%s.bak", fname);
+}
+```
+
+Note: `PATH_MAX` is for **full paths**. For buffers holding only a **filename**
+(not a full path), use `NAME_MAX + 1` (= 256 on Linux). For example,
+`struct inotify_event.name` stores a filename, so `NAME_MAX + 1` is correct
+there — not `PATH_MAX`.
 
 ### Using Syscalls
 
