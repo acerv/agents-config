@@ -44,6 +44,10 @@ Check changed files and load corresponding rules:
 **IMPORTANT**: Open POSIX tests use different APIs and conventions. Do NOT apply
 LTP C test rules to Open POSIX tests.
 
+**IMPORTANT**: `agents/ltp/c-tests.md` is the single source of truth for LTP C
+test rules. The checklist in Phase 5 below is a structural guide only — when
+`c-tests.md` and the inline checklist conflict, `c-tests.md` wins.
+
 ## Phase 2: Commit Message Checks
 
 For EACH commit, verify in this order:
@@ -105,6 +109,11 @@ Check EACH rule. Mark ✅, ❌, or N/A.
 
 ### LTP C Test Rules
 
+Apply ALL rules from `agents/ltp/c-tests.md` (already loaded in Step 1.3).
+Do not rely on memory or prior knowledge — use the live file content.
+
+Key structural checks (verify these explicitly):
+
 - **C1 SPDX header**: First line is `// SPDX-License-Identifier: GPL-2.0-or-later`
 - **C2 Copyright**: Second block has `Copyright`
 - **C3 Doc comment**: `/*\` block exists with description
@@ -117,6 +126,11 @@ Check EACH rule. Mark ✅, ❌, or N/A.
 - **C10 Static vars reset**: Static vars in run() are reset or set in setup()
 - **C11 Result reporting**: Uses tst_res()/tst_brk() correctly
 - **C12 TCONF for unsupported**: Feature unavailable → TCONF, not TFAIL
+
+For code patterns (string handling, memory allocation, fd init, PATH_MAX,
+parametrization, child processes, etc.) apply the examples from
+`agents/ltp/c-tests.md` directly — those examples are the authoritative
+WRONG/CORRECT reference.
 
 ### Open POSIX Test Rules
 
