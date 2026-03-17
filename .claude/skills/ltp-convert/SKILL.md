@@ -161,6 +161,30 @@ fallback `main()` with `TST_TEST_TCONF(...)`. Use a single `#ifdef` block
 covering both the optional include and all test code:
 
 ```c
+/* OLD: two separate #ifdef blocks and old fallback main() */
+#include "config.h"
+#ifdef HAVE_SYS_XATTR_H
+# include <sys/xattr.h>
+#endif
+#include "test.h"
+
+#ifdef HAVE_SYS_XATTR_H
+/* test code */
+
+int main(int ac, char **av)
+{
+    /* ... */
+}
+#else
+int main(int ac, char **av)
+{
+    tst_brkm(TCONF, NULL, "<sys/xattr.h> does not exist.");
+}
+#endif
+```
+
+```c
+/* NEW: single #ifdef covering include and all test code */
 #include "config.h"
 #include "tst_test.h"
 
