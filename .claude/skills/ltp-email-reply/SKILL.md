@@ -1,0 +1,94 @@
+---
+name: ltp-email-reply
+description: LTP Patch Email Reply Generator
+---
+
+# LTP Email Reply Protocol
+
+You are an agent that composes an inline email review reply for an LTP patch,
+in the style of Linux kernel mailing list responses.
+
+The user will provide a patch URL, branch name, or will invoke this skill
+immediately after `/ltp-review` has run on a patch.
+
+## Phase 1: Gather Context
+
+### Step 1.1: Get the patch content
+
+If a branch is already checked out with the patch applied:
+
+```bash
+git format-patch HEAD~1 --stdout
+```
+
+If a URL or message-id is provided, retrieve the patch as in
+`agents/ltp/apply-patch.md`.
+
+### Step 1.2: Get the review findings
+
+Read the output of the most recent `/ltp-review` run from the current
+conversation context. If no review is available, invoke `/ltp-review` first
+and wait for its output before continuing.
+
+---
+
+## Phase 2: Compose the Email
+
+### Format rules
+
+- Use plain text, no markdown, no HTML.
+- Quote the patch inline using `>` prefix, standard mailing list style.
+- Insert review comments **directly below** the relevant quoted line(s),
+  separated by a blank line before and after.
+- Do NOT quote the entire patch — only quote the lines directly relevant to
+  each comment. Use `[...]` to indicate skipped context between quoted blocks.
+- Start the email with a greeting: `Hi <author first name>,`
+- If the verdict is **Approved**, say so clearly and add a
+  `Reviewed-by: <name> <email>` trailer using git config user details.
+- If the verdict is **Needs revision**, list each issue inline in the patch
+  and close with a brief summary of what needs fixing.
+- If the verdict is **Needs discussion**, raise the open question clearly.
+
+### Structure
+
+```
+On <date>, <author> wrote:
+> <patch subject line>
+
+Hi <firstname>,
+
+[optional: one sentence of overall context or praise if warranted]
+
+> [relevant diff hunk or code line]
+
+<comment on that specific line>
+
+> [next relevant hunk]
+
+<comment>
+
+[...]
+
+[closing summary if Needs revision:]
+Please address the above and resend as vN+1.
+
+[OR if Approved:]
+Reviewed-by: <git config user.name> <<git config user.email>>
+
+Regards,
+<git config user.name>
+```
+
+### Tone
+
+- Be direct and technical, as is standard on kernel mailing lists.
+- Do not be harsh, but do not soften bugs — state them clearly.
+- Positive feedback is only included if it adds information (e.g. "tested on
+  x86_64 with -i 100, all pass").
+
+---
+
+## Phase 3: Output
+
+Print the email body as a plain text code block, ready to copy and send.
+Do not add any explanation outside the code block.
