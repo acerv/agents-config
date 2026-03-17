@@ -154,11 +154,56 @@ Apply `c-tests.md` result-reporting rules:
 
 ### 3.5 Conversion Examples
 
-#### `HAVE_*` Header Guards
+#### `HAVE_*` Feature Guards
 
-If the original test has a `HAVE_*` guard, preserve it. Replace the old
-fallback `main()` with `TST_TEST_TCONF(...)`. Use a single `#ifdef` block
-covering both the optional include and all test code:
+The `#ifdef HAVE_*` MUST wrap ALL test code at file level — never inside
+individual functions. `struct tst_test` goes inside the `#ifdef`. The `#else`
+uses `TST_TEST_TCONF("...")` with a human-readable literal string (never a
+macro like `NUMA_ERROR_MSG`).
+
+If a support `.c` file's entire body depends on the same flag, use one
+top-level `#ifdef` wrapping the whole file — never scatter per-function guards.
+
+If the old test guards logic inside a function with an `#else` fallback, lift
+it to file level:
+
+```c
+/* OLD: guard inside function body */
+#include "test.h"
+#include "move_pages_support.h"
+
+static void run(void)
+{
+#ifdef HAVE_NUMA_V2
+    /* test logic */
+#else
+    tst_res(TCONF, NUMA_ERROR_MSG);
+#endif
+}
+
+static struct tst_test test = { .test_all = run };
+```
+
+```c
+/* NEW: guard at file level */
+#include "tst_test.h"
+#include "move_pages_support.h"
+
+#ifdef HAVE_NUMA_V2
+
+static void run(void)
+{
+    /* test logic */
+}
+
+static struct tst_test test = { .test_all = run };
+
+#else
+TST_TEST_TCONF("numa v2 is not supported");
+#endif
+```
+
+If the original test has a `HAVE_*` guard on an optional header, preserve it:
 
 ```c
 /* OLD: two separate #ifdef blocks and old fallback main() */

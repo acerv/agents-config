@@ -114,7 +114,64 @@ When reviewing or writing C tests, verify ALL of the following:
 - `#if defined(...)` arch guards are only acceptable when the target architecture
   is not supported by the framework
 
-### 14. Deprecated Features
+### 14. Compile-time Feature Guards (`HAVE_*`)
+
+When the entire test depends on a compile-time feature flag (e.g. `HAVE_NUMA_V2`,
+`HAVE_SYS_XATTR_H`), the `#ifdef` MUST wrap ALL test code at the file level —
+never inside individual functions.
+
+Rules:
+
+- The `#ifdef HAVE_*` MUST appear after the includes that bring in `config.h`
+  (which defines the `HAVE_*` macros), so that the guard is evaluated correctly
+- ALL `#define` macros, static variables, helper functions, and `struct tst_test`
+  MUST be inside the `#ifdef` block
+- The `#else` branch MUST use `TST_TEST_TCONF("...")` with a human-readable
+  literal string explaining what is missing — NEVER use the `HAVE_*` macro name
+  or a generic constant like `NUMA_ERROR_MSG` as the message
+- When a support/helper `.c` file's entire body depends on the same feature flag,
+  wrap the whole file body in a single top-level `#ifdef` — NEVER scatter
+  per-function guards inside the same file
+
+WRONG — guard buried inside a function:
+
+```c
+#include "tst_test.h"
+#include "move_pages_support.h"
+
+static void run(void)
+{
+#ifdef HAVE_NUMA_V2
+    /* test logic */
+#else
+    tst_res(TCONF, NUMA_ERROR_MSG);
+#endif
+}
+
+static struct tst_test test = { .test_all = run };
+```
+
+CORRECT — guard at file level, `struct tst_test` inside, `TST_TEST_TCONF` in `#else`:
+
+```c
+#include "tst_test.h"
+#include "move_pages_support.h"  /* brings in config.h → defines HAVE_NUMA_V2 */
+
+#ifdef HAVE_NUMA_V2
+
+static void run(void)
+{
+    /* test logic */
+}
+
+static struct tst_test test = { .test_all = run };
+
+#else
+    TST_TEST_TCONF("numa v2 is not supported");
+#endif
+```
+
+### 15. Deprecated Features
 
 - MUST NOT define `[Description]` in the test description section
 
