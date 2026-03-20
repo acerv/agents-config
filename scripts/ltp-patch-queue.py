@@ -6,6 +6,7 @@ Usage:
     ./ltp-patch-queue.py                  # quick mode; states: new, under-review, needs-review-ack
     ./ltp-patch-queue.py --diffs          # fetch full diffs (~1 req/patch): enables accurate
                                           #   lib/include detection, Fixes: tag, and SOB count
+    ./ltp-patch-queue.py --checks         # fetch CI check results and show pass/total column
     ./ltp-patch-queue.py --no-tags        # ignore Reviewed-by, Acked-by, Signed-off-by
     ./ltp-patch-queue.py --no-days        # ignore patch age; rank by version/fix/tags only
     ./ltp-patch-queue.py --min-score N    # only show patches with score >= N
@@ -17,6 +18,7 @@ import argparse
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from urllib.request import Request, urlopen
 
@@ -215,12 +217,25 @@ def fetch_patch_detail(patch_id: int) -> str:
     return fetch_mbox(mbox_url)
 
 
+def fetch_patch_checks(patch_id: int) -> tuple[int, int]:
+    """Return (passed, total) CI check counts for a patch."""
+    try:
+        data = fetch_json(f"{PATCHWORK_BASE}/patches/{patch_id}/checks/")
+        results = data.get("results", data) if isinstance(data, dict) else data
+        total = len(results)
+        passed = sum(1 for c in results if c.get("state") == "success")
+        return passed, total
+    except Exception:
+        return 0, 0
+
+
 # ----- Scoring a single patch -------------------------------------------------
 
 
 def score_patch(
     patch: dict,
     fetch_diffs: bool = False,
+    fetch_checks: bool = False,
     ignore_tags: bool = False,
     ignore_days: bool = False,
 ) -> dict:
@@ -249,6 +264,8 @@ def score_patch(
         sob_count = len(SOB_RE.findall(diff_text)) or sob_count
     else:
         lib_pts = lib_score_from_subject(name)
+
+    checks_passed, checks_total = fetch_patch_checks(patch_id) if fetch_checks else (0, 0)
 
     score = 0
     reasons = []
@@ -334,6 +351,8 @@ def score_patch(
         "has_fixes_tag": has_fixes_tag,
         "sob_count": sob_count,
         "lib_pts": lib_pts,
+        "checks_passed": checks_passed,
+        "checks_total": checks_total,
         "score": score,
         "reasons": reasons,
         "url": patch.get("web_url")
@@ -392,7 +411,7 @@ def _hyperlink(url: str, text: str) -> str:
     return f"\033]8;;{url}\033\\{text}\033]8;;\033\\"
 
 
-def print_pretty(scored: list, counts: dict) -> None:
+def print_pretty(scored: list, counts: dict, show_checks: bool = False) -> None:
     total = len(scored)
     new_count = counts.get("new", 0)
     under_count = counts.get("under-review", 0)
@@ -416,7 +435,8 @@ def print_pretty(scored: list, counts: dict) -> None:
         grouped[tier_id].sort(key=lambda p: (-p["score"], p["days"]))
 
     # Column widths
-    W_NUM, W_SCORE, W_VER, W_AGE, W_SUBJ = 3, 5, 3, 5, 58
+    W_NUM, W_SCORE, W_VER, W_AGE, W_CI = 3, 5, 3, 5, 5
+    W_SUBJ = 52 if show_checks else 58
 
     counter = 1
     for _, tier_id, label in TIERS:
@@ -430,10 +450,12 @@ def print_pretty(scored: list, counts: dict) -> None:
             continue
 
         # Header row
+        ci_hdr = f"  {'CI':>{W_CI}}" if show_checks else ""
+        ci_sep = f"  {'─'*W_CI}" if show_checks else ""
         hdr = (f"  {'#':>{W_NUM}}  {'Score':>{W_SCORE}}  {'Ver':>{W_VER}}"
-               f"  {'Age':>{W_AGE}}  {'Subject':<{W_SUBJ}}  Notes")
+               f"  {'Age':>{W_AGE}}{ci_hdr}  {'Subject':<{W_SUBJ}}  Notes")
         sep = (f"  {'─'*W_NUM}  {'─'*W_SCORE}  {'─'*W_VER}"
-               f"  {'─'*W_AGE}  {'─'*W_SUBJ}  {'─'*22}")
+               f"  {'─'*W_AGE}{ci_sep}  {'─'*W_SUBJ}  {'─'*22}")
         print(f"{BOLD}{hdr}{RESET}")
         print(GRAY + sep + RESET)
 
@@ -441,13 +463,24 @@ def print_pretty(scored: list, counts: dict) -> None:
             score_str = f"{color}{BOLD}{p['score']:>{W_SCORE}}{RESET}"
             ver_str   = f"v{p['version']}"
             age_str   = f"{p['days']}d"
+            if show_checks:
+                passed = p["checks_passed"]
+                total  = p["checks_total"]
+                if total == 0:
+                    ci_str = f"  {GRAY}{'—':>{W_CI}}{RESET}"
+                elif passed == total:
+                    ci_str = f"  {CYAN}{f'{passed}/{total}':>{W_CI}}{RESET}"
+                else:
+                    ci_str = f"  {RED}{f'{passed}/{total}':>{W_CI}}{RESET}"
+            else:
+                ci_str = ""
             subj_raw  = p["name"][:W_SUBJ] + ("…" if len(p["name"]) > W_SUBJ else "")
             subj_pad  = subj_raw + " " * max(0, W_SUBJ - len(subj_raw))
             num_disp  = _hyperlink(p["url"], f"{counter:>{W_NUM}}")
             notes     = build_notes(p)
             print(
                 f"  {num_disp}  {score_str}  {ver_str:>{W_VER}}"
-                f"  {age_str:>{W_AGE}}  {subj_pad}  {GRAY}{notes}{RESET}"
+                f"  {age_str:>{W_AGE}}{ci_str}  {subj_pad}  {GRAY}{notes}{RESET}"
             )
             counter += 1
 
@@ -472,6 +505,11 @@ def main() -> None:
         "--diffs",
         action="store_true",
         help="Fetch full diffs for accurate lib/include detection (slower, ~1 req/patch)",
+    )
+    parser.add_argument(
+        "--checks",
+        action="store_true",
+        help="Fetch CI check results and show pass/total column (~1 req/patch, parallelized)",
     )
     parser.add_argument(
         "--json", action="store_true", help="Output raw scored JSON instead of markdown"
@@ -508,24 +546,40 @@ def main() -> None:
     # Drop cover letters
     raw_patches = [p for p in raw_patches if not is_cover(p.get("name", ""))]
 
-    print(f"Scoring {len(raw_patches)} patches…", file=sys.stderr)
-    scored = []
-    for i, p in enumerate(raw_patches):
-        if args.diffs:
-            sys.stderr.write(
-                f"\r  [{i + 1}/{len(raw_patches)}] {p.get('name', '')[:60]:<60}"
-            )
-            sys.stderr.flush()
-        scored.append(
-            score_patch(
+    n = len(raw_patches)
+    extras = " + CI checks" if args.checks else ""
+    extras += " + diffs" if args.diffs else ""
+    print(f"Scoring {n} patches{extras}…", file=sys.stderr)
+    scored = [None] * n
+    done = 0
+
+    # Fewer workers when fetching heavy data to avoid rate limiting
+    max_workers = 4 if (args.diffs or args.checks) else 10
+
+    def _score(idx_patch):
+        idx, p = idx_patch
+        try:
+            return idx, score_patch(
                 p,
                 fetch_diffs=args.diffs,
+                fetch_checks=args.checks,
                 ignore_tags=args.no_tags,
                 ignore_days=args.no_days,
             )
-        )
-    if args.diffs:
-        print(file=sys.stderr)
+        except Exception as e:
+            sys.stderr.write(f"\n  [warn] patch {p.get('id')} failed: {e}\n")
+            sys.stderr.flush()
+            return idx, score_patch(p, ignore_tags=args.no_tags, ignore_days=args.no_days)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_score, (i, p)): i for i, p in enumerate(raw_patches)}
+        for future in as_completed(futures):
+            idx, result = future.result()
+            scored[idx] = result
+            done += 1
+            sys.stderr.write(f"\r  {done}/{n}")
+            sys.stderr.flush()
+    print(file=sys.stderr)
 
     if args.min_score is not None:
         scored = [p for p in scored if p["score"] >= args.min_score]
@@ -534,7 +588,7 @@ def main() -> None:
         print(json.dumps(scored, indent=2, default=str))
         return
 
-    print_pretty(scored, counts)
+    print_pretty(scored, counts, show_checks=args.checks)
 
 
 def is_cover(name: str) -> bool:
