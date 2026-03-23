@@ -1196,3 +1196,46 @@ static void run(void)
     /* CORRECT: let the framework reaping the child */
 }
 ```
+
+### Static Variable Initialization
+
+Static variables whose value is fully derived from other statics already set
+in `setup()` MUST be initialized in `setup()` as well, NOT inside `run()`.
+Recomputing a constant derived value on every iteration is redundant and
+misleading — it implies the value may change across iterations when it does not.
+
+WRONG — derived value recomputed on every call to `run()`:
+
+```c
+static long page_size;
+static size_t buf_size;
+
+static void setup(void)
+{
+    page_size = getpagesize();
+}
+
+static void run(void)
+{
+    buf_size = page_size * 2;  /* needlessly recomputed every iteration */
+    ...
+}
+```
+
+CORRECT — derived value computed once in `setup()`:
+
+```c
+static long page_size;
+static size_t buf_size;
+
+static void setup(void)
+{
+    page_size = getpagesize();
+    buf_size = page_size * 2;
+}
+
+static void run(void)
+{
+    /* use buf_size directly */
+}
+```
