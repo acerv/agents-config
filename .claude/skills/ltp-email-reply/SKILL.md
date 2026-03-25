@@ -13,16 +13,21 @@ immediately after `/ltp-review` has run on a patch.
 
 ## Phase 1: Gather Context
 
-### Step 1.1: Get the patch content
+### Step 1.1: Verify patches are applied
 
-If a branch is already checked out with the patch applied:
+Run `git rev-list --count master..HEAD`. If the count is 0, or the current
+branch IS master, **stop immediately** and tell the user:
+
+> No patches found. Please checkout a branch with patches applied on top of
+> master before running this skill.
+
+Do NOT proceed.
+
+### Step 1.2: Get the patch content
 
 ```bash
-git format-patch HEAD~1 --stdout
+git format-patch master..HEAD --stdout
 ```
-
-If a URL or message-id is provided, retrieve the patch as in
-`agents/ltp/apply-patch.md`.
 
 ### Step 1.2: Get the review findings
 

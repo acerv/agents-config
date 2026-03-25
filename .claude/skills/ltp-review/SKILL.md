@@ -5,36 +5,36 @@ description: LTP Patch Review Skill
 
 # LTP Patch Review Protocol
 
-You are an agent that performs a deep regression analysis on patches for the
+You are an agent that performs a deep code review on patches for the
 LTP - Linux Test Project.
+
+Commit message checks, checkpatch, checkbashisms, compilation, and runtime
+tests are handled by CI (`ci/tools/patch-precheck.sh` and the ci-docker-build
+matrix). Your job is the **code review** — understanding intent, conventions,
+and correctness.
 
 ## Phase 1: Setup
 
-### Step 1.1: Load Core Files
+### Step 1.1: Load Rules
 
-**CRITICAL**: Before attempting to download or access any URLs, you MUST read
-these files:
+Read `agents/ltp/ground-rules.md`.
 
-- `agents/ltp/apply-patch.md`
-- `agents/ltp/ground-rules.md`
+### Step 1.2: Verify patches are applied
 
-These files contain instructions for downloading patches from patchwork,
-lore, GitHub, etc. DO NOT attempt to use WebFetch on patch URLs - use the
-methods in `agents/ltp/apply-patch.md` instead.
+Run `git rev-list --count master..HEAD`. If the count is 0 (no commits ahead
+of master), or the current branch IS master, **stop immediately** and tell the
+user:
 
-### Step 1.2: Prepare and apply patches
+> No patches found. Please checkout a branch with patches applied on top of
+> master before running this review.
 
-```bash
-git checkout <base-branch>
-git branch -D review/<name> 2>/dev/null
-git checkout -b review/<name> <base-branch>
-```
+Do NOT proceed with the review.
 
-Then you MUST follow the `agents/ltp/apply-patch.md` instructions.
+### Step 1.3: Identify Changed Files and Patch Type
 
-### Step 1.3: Identify Patch Type
-
-Check changed files and load corresponding rules:
+The current branch already has the patches applied (master..HEAD).
+Use `git diff --name-only master..HEAD` to list changed files, then load
+corresponding rules:
 
 - Files in `testcases/open_posix_testsuite/` → Read `agents/ltp/openposix.md`
 - `*.c` or `*.h` (NOT in open_posix_testsuite) → Read `agents/ltp/c-tests.md`
@@ -45,53 +45,25 @@ Check changed files and load corresponding rules:
 LTP C test rules to Open POSIX tests.
 
 **IMPORTANT**: `agents/ltp/c-tests.md` is the single source of truth for LTP C
-test rules. The checklist in Phase 5 below is a structural guide only — when
-`c-tests.md` and the inline checklist conflict, `c-tests.md` wins.
+test rules. The checklist below is a structural guide only — when `c-tests.md`
+and the inline checklist conflict, `c-tests.md` wins.
 
-## Phase 2: Commit Message Checks
+## Phase 2: Commit Message Review
 
-For EACH commit, verify in this order:
+For EACH commit (`git log master..HEAD`), review the message quality:
 
-- **2.1 Signed-off-by**: `git log -1 --format=%b | grep "^Signed-off-by:"` → Line exists
-- **2.2 Subject line**: `git log -1 --format=%s` → Clear, <72 chars
-- **2.3 Body**: `git log -1 --format=%b` → Explains "why"
-- **2.4 Fixes tag**: (if fixing bug) → `Fixes:` present
+- **M1 Subject is clear**: Describes WHAT changed concisely
+- **M2 Body explains WHY**: Not just what, but the motivation for the change
+- **M3 One logical change**: Each commit is a single, self-contained change
+- **M4 Fixes tag**: If fixing a bug, `Fixes:` tag is present
 
-## Phase 3: Build Checks
+CI already checks the mechanical parts (Signed-off-by presence, subject length).
+Your job is to judge whether the message is **clear and informative**.
 
-Run in this EXACT order. Stop on first failure.
+## Phase 3: Code Review
 
-### For LTP C Tests:
-
-- **3.1 Checkpatch**: `make -C <test-dir> check-<testname>` → No errors for this test
-- **3.2 Compile**: `make -C <test-dir> <testname>` → Exit code 0
-- **3.3 Each patch compiles**: `git checkout HEAD~N && make -C <dir>` → Exit code 0 for each
-
-### For Open POSIX Tests:
-
-- **3.1 Checkpatch**: Skip (Open POSIX uses different style)
-- **3.2 Compile**: See `agents/ltp/openposix.md` for build instructions → Exit code 0
-- **3.3 Each patch compiles**: `git checkout HEAD~N` then follow same build steps → Exit code 0 for each
-
-## Phase 4: Runtime Checks
-
-Run in this EXACT order. Mark UNKNOWN if requires privileges or times out (>60s).
-
-### For LTP C Tests:
-
-- **4.1 Run -i 0**: `./<test> -i 0` → No TFAIL/TBROK
-- **4.2 Run -i 10**: `./<test> -i 10` → No TFAIL/TBROK
-- **4.3 Run -i 100**: `./<test> -i 100` → No TFAIL/TBROK
-
-### For Open POSIX Tests:
-
-- **4.1 Run test**: `./<test>` → Returns PTS_PASS (0)
-- **4.2 Run 10 times**: `for i in {1..10}; do ./<test>; done` → All return PTS_PASS
-- **4.3 Run 100 times**: `for i in {1..100}; do ./<test>; done` → All return PTS_PASS
-
-## Phase 5: Code Review
-
-Check EACH rule. Mark ✅, ❌, or N/A.
+Read the full changed files (not just the diff) and check EACH rule.
+Mark ✅, ❌, or N/A.
 
 ### Ground Rules (MANDATORY - any ❌ = reject)
 
@@ -102,8 +74,7 @@ Check EACH rule. Mark ✅, ❌, or N/A.
   or test documents privilege requirements (Open POSIX)
 - **G5 Cleanup on all paths**: Check cleanup() handles all resources (LTP)
   or manual cleanup before all returns (Open POSIX)
-- **G6 Portable code**: `make check` passes (LTP)
-  or uses POSIX-only APIs (Open POSIX)
+- **G6 Portable code**: Uses POSIX-only APIs (Open POSIX) or portable constructs (LTP)
 - **G7 One change per patch**: Review diff scope
 - **G8 Staging for unreleased**: Check if kernel feature is released
 
@@ -132,6 +103,26 @@ parametrization, child processes, etc.) apply the examples from
 `agents/ltp/c-tests.md` directly — those examples are the authoritative
 WRONG/CORRECT reference.
 
+### LTP Shell Test Rules
+
+Apply ALL rules from `agents/ltp/shell-tests.md` (already loaded in Step 1.3).
+Do not rely on memory or prior knowledge — use the live file content.
+
+Key structural checks (verify these explicitly):
+
+- **S1 Shebang**: First line is exactly `#!/bin/sh`
+- **S2 SPDX header**: `# SPDX-License-Identifier: GPL-2.0-or-later`
+- **S3 Copyright**: Copyright line with year and author
+- **S4 Doc block**: `# --- doc` block present with RST description
+- **S5 Env block**: `# --- env` block present (even if empty `{}`)
+- **S6 Variable assignments before loader**: `TST_SETUP`/`TST_CLEANUP` set BEFORE `. tst_loader.sh`
+- **S7 Loader sourced**: `. tst_loader.sh` present, AFTER variables, BEFORE functions
+- **S8 Functions after loader**: `setup()`/`cleanup()`/`tst_test()` defined AFTER loader
+- **S9 Runner last**: `. tst_run.sh` is the LAST line, nothing after it
+- **S10 POSIX shell only**: No bash-isms (`[[ ]]`, arrays, `function` keyword, process substitution)
+- **S11 Quoted expansions**: All variable expansions are quoted
+- **S12 Result reporting**: Uses `tst_res` and `tst_brk` for reporting
+
 ### Open POSIX Test Rules
 
 - **P1 GPL header**: Has GPL license header with copyright
@@ -146,42 +137,22 @@ WRONG/CORRECT reference.
 - **P10 Resource cleanup**: Cleans up all resources before returning
 - **P11 Portable POSIX**: Uses only POSIX APIs (unless testing Linux-specific behavior)
 
-## Phase 6: Output
+## Phase 4: Output
 
 ALWAYS output in this EXACT format:
 
 ```
 ## Review: <patch-subject>
 
-### Commits
-- <hash1>: <subject1> - Signed-off-by: ✅/❌
-- <hash2>: <subject2> - Signed-off-by: ✅/❌
-
-### Build
-- Checkpatch: ✅/❌/N/A (Open POSIX)
-- Compiles: ✅/❌
-- Each patch compiles alone: ✅/❌
-
-### Runtime
-- Tests pass (iteration 1): ✅/❌/UNKNOWN
-- Tests pass (iteration 10): ✅/❌/UNKNOWN
-- Tests pass (iteration 100): ✅/❌/UNKNOWN
+### Commit Messages
+- <hash>: <subject> — ✅ / ❌ <issue>
 
 ### Code Review
 - Ground rules: ✅ all pass / ❌ <list violations>
-- [LTP C test rules / Open POSIX test rules]: ✅ all pass / ❌ <list violations>
+- [LTP C test rules / LTP shell test rules / Open POSIX test rules]: ✅ all pass / ❌ <list violations>
 
 ### Issues Found
 1. <issue or "None">
-
-### Summary
-- Signed-off-by: ✅/❌
-- Commit message: ✅/❌
-- Applies cleanly: ✅/❌
-- Compiles: ✅/❌
-- Tests pass (iteration 1): ✅/❌/UNKNOWN
-- Tests pass (iteration 10): ✅/❌/UNKNOWN
-- Tests pass (iteration 100): ✅/❌/UNKNOWN
 
 ### Verdict
 
@@ -193,9 +164,7 @@ ALWAYS output in this EXACT format:
 ## Decision Rules
 
 - ANY ground rule violation → **Needs revision** ❌
-- Build failure → **Needs revision** ❌
-- Test failure (not UNKNOWN) → **Needs revision** ❌
-- Missing Signed-off-by → **Needs revision** ❌
 - Missing runtest/gitignore (LTP tests only) → **Needs revision** ❌
+- Unclear or missing commit message body → **Needs revision** ❌
 - All checks pass → **Approved** ✅
 - Uncertain about rule → **Needs discussion** ⚠️
